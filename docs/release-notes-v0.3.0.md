@@ -1,7 +1,9 @@
 中文用户请下载 DiskPilot-Lite-0.3.0-cn-win.zip · English users: download DiskPilot-Lite-0.3.0-en-win.zip
 
 这一版新增了英文版，中文版用法和以前一样。
+
 仍然只给建议，不会删除你的任何文件。
+
 下载后先右键解压，再双击「一键扫描C盘.cmd」。
 
 # DiskPilot Lite 0.3.0
