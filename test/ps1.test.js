@@ -236,3 +236,93 @@ test(
     assert.equal(run.status, 0, run.stdout + run.stderr);
   }
 );
+
+/** Runs a PowerShell snippet after dot-sourcing the script with -NoRun. */
+function runPowerShell(snippet) {
+  const command =
+    '. ' +
+    quote(path.join(__dirname, '../src/diskpilot-lite.ps1')) +
+    ' -NoRun; ' +
+    snippet;
+  return spawnSync(pwsh, ['-NoProfile', '-Command', command], {
+    encoding: 'utf8'
+  });
+}
+
+test(
+  'PowerShell 安装同意：只有 Y、y、是（可带空白）才安装',
+  {
+    skip: !available
+  },
+  () => {
+    const cases = [
+      ['Y', true],
+      ['y', true],
+      ['是', true],
+      ['  是 ', true],
+      [' y\t', true],
+      ['', false],
+      ['   ', false],
+      ['N', false],
+      ['n', false],
+      ['否', false],
+      ['yes', false],
+      ['是的', false],
+      ['Ｙ', false],
+      ['YY', false]
+    ];
+    const snippet =
+      cases
+        .map(
+          ([answer, expected]) =>
+            'if ((Test-InstallConsent ' +
+            quote(answer) +
+            ') -ne $' +
+            expected +
+            ") { throw 'consent case failed: [" +
+            answer.replaceAll("'", "''") +
+            "]' }"
+        )
+        .join('; ') +
+      "; if (Test-InstallConsent $null) { throw 'null must be no' }";
+    const run = runPowerShell(snippet);
+    assert.equal(run.status, 0, run.stdout + run.stderr);
+  }
+);
+
+test(
+  'PowerShell 等待导出：进程运行中不放弃，结束后等文件大小稳定；超时与缺失不抛异常',
+  {
+    skip: !available
+  },
+  () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), '等待 测试 '));
+    const csv = path.join(directory, 'scan.csv');
+    // 模拟进程：前 N 次检查仍在运行，期间文件不断变大（超过旧版 30 次上限）。
+    const snippet = `
+      $csv = ${quote(csv)}
+      $script:checks = 0
+      $p = [pscustomobject]@{ HasExited = $false }
+      $p | Add-Member -Force ScriptMethod Refresh {
+        $script:checks++
+        [IO.File]::AppendAllText($csv, 'x')
+        if ($script:checks -ge 40) { $this.HasExited = $true }
+      }
+      $r = Wait-WizTreeExport -Process $p -CsvPath $csv -SlowMode -StableSeconds 1 -PollSeconds 0.05 -HeartbeatSeconds 1
+      if ($r -ne 'ok') { throw "expected ok, got $r" }
+      if ((Get-Item -LiteralPath $csv).Length -ne 40) { throw 'file length' }
+      $q = [pscustomobject]@{ HasExited = $false }
+      $q | Add-Member -Force ScriptMethod Refresh { }
+      $r = Wait-WizTreeExport -Process $q -CsvPath $csv -TimeoutMinutes 0.02 -PollSeconds 0.05
+      if ($r -ne 'timeout') { throw "expected timeout, got $r" }
+      $done = [pscustomobject]@{ HasExited = $true }
+      $done | Add-Member -Force ScriptMethod Refresh { }
+      $r = Wait-WizTreeExport -Process $done -CsvPath ($csv + '.none') -MissingSeconds 1 -PollSeconds 0.05
+      if ($r -ne 'missing') { throw "expected missing, got $r" }
+    `;
+    const run = runPowerShell(snippet);
+    assert.equal(run.status, 0, run.stdout + run.stderr);
+    assert.match(run.stdout, /慢速模式，可能要 10 分钟以上，请耐心等，不要关闭这个窗口/);
+    assert.match(run.stdout, /程序没有卡住，已用/);
+  }
+);

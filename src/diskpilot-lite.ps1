@@ -169,37 +169,107 @@ function New-ReportHtml {
     [IO.File]::WriteAllText($OutPath, $html, $encoding)
 }
 
+function Test-InstallConsent {
+    # 只有 Y、y、是（去掉首尾空白后）表示同意安装；空输入或其他任何内容都表示不安装。
+    param([AllowNull()][string]$Answer)
+    if ($null -eq $Answer) { return $false }
+    $text = $Answer.Replace([string][char]0, '').Trim()
+    return ($text -ceq 'Y' -or $text -ceq 'y' -or $text -ceq '是')
+}
+
+function Format-Elapsed {
+    param([TimeSpan]$Elapsed)
+    $minutes = [int][Math]::Floor($Elapsed.TotalMinutes)
+    if ($minutes -gt 0) { return ('{0} 分 {1} 秒' -f $minutes, $Elapsed.Seconds) }
+    return ('{0} 秒' -f [int][Math]::Floor($Elapsed.TotalSeconds))
+}
+
 function Wait-WizTreeExport {
-    param($Process, [string]$CsvPath)
-    $watch = [Diagnostics.Stopwatch]::StartNew(); $spinner = @('|', '/', '-', '\'); $n = 0
+    # 先等 WizTree 进程结束，再等 CSV 大小连续 StableSeconds 秒不变。
+    # 返回 'ok'、'timeout'（超过总时限）或 'missing'（进程已结束但没有生成 CSV）。不抛异常。
+    param(
+        $Process,
+        [string]$CsvPath,
+        [switch]$SlowMode,
+        [double]$TimeoutMinutes = 0,
+        [int]$StableSeconds = 5,
+        [int]$MissingSeconds = 60,
+        [int]$HeartbeatSeconds = 30,
+        [double]$PollSeconds = 1
+    )
+    if ($TimeoutMinutes -le 0) { if ($SlowMode) { $TimeoutMinutes = 60 } else { $TimeoutMinutes = 20 } }
+    if ($SlowMode) { $message = '慢速模式，可能要 10 分钟以上，请耐心等，不要关闭这个窗口' }
+    else { $message = '正在扫描 C 盘，大约需要 1 到 2 分钟，请不要关闭这个窗口' }
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    $spinner = @('|', '/', '-', '\')
+    $tick = 0
+    $nextHeartbeat = $HeartbeatSeconds
+    Write-Host $message
+    # 第 1 步：等 WizTree 退出（导出完成前它不会退出）。
     while (-not $Process.HasExited) {
-        if ($watch.Elapsed.TotalMinutes -ge 30) { throw '扫描已超过 30 分钟，请查看 WizTree 窗口，稍后重试。' }
-        Write-Host -NoNewline ("`r正在扫描 C 盘，大约需要 1 到 2 分钟，请不要关闭这个窗口 … 已用 {0} 秒 {1}  " -f [int]$watch.Elapsed.TotalSeconds, $spinner[$n % 4])
-        Start-Sleep -Seconds 1; $n++; $Process.Refresh()
+        if ($watch.Elapsed.TotalMinutes -ge $TimeoutMinutes) { Write-Host ''; return 'timeout' }
+        if ($watch.Elapsed.TotalSeconds -ge $nextHeartbeat) {
+            Write-Host ''
+            Write-Host ('仍在扫描，程序没有卡住，已用 {0}' -f (Format-Elapsed $watch.Elapsed))
+            $nextHeartbeat += $HeartbeatSeconds
+        }
+        Write-Host -NoNewline ("`r{0} … 已用 {1} {2}  " -f $message, (Format-Elapsed $watch.Elapsed), $spinner[$tick % 4])
+        Start-Sleep -Milliseconds ([int]($PollSeconds * 1000))
+        $tick++
+        $Process.Refresh()
     }
     Write-Host ''
-    $last = -1; $stable = 0
-    for ($i = 0; $i -lt 30; $i++) {
-        if (Test-Path -LiteralPath $CsvPath -PathType Leaf) {
-            $length = (Get-Item -LiteralPath $CsvPath).Length
-            if ($length -gt 0 -and $length -eq $last) { $stable++ } else { $stable = 0 }
-            $last = $length
-            if ($stable -ge 2) { Write-Host ''; return }
+    # 第 2 步：等 CSV 写完：存在、非空、大小连续 StableSeconds 秒不变。
+    $exitedAt = $watch.Elapsed.TotalSeconds
+    $lastLength = -1
+    $stableSince = $null
+    while ($true) {
+        if ($watch.Elapsed.TotalMinutes -ge $TimeoutMinutes) { Write-Host ''; return 'timeout' }
+        $length = -1
+        if (Test-Path -LiteralPath $CsvPath -PathType Leaf) { $length = (Get-Item -LiteralPath $CsvPath).Length }
+        if ($length -le 0) {
+            if ($watch.Elapsed.TotalSeconds - $exitedAt -ge $MissingSeconds) { Write-Host ''; return 'missing' }
+            $stableSince = $null
+        } elseif ($length -ne $lastLength) {
+            $stableSince = $watch.Elapsed.TotalSeconds
+        } elseif ($watch.Elapsed.TotalSeconds - $stableSince -ge $StableSeconds) {
+            Write-Host ''
+            return 'ok'
         }
-        Write-Host -NoNewline ("`r正在等待扫描结果写入完成… 已等待 {0} 秒  " -f ($i + 1))
-        Start-Sleep -Seconds 1
+        $lastLength = $length
+        if ($watch.Elapsed.TotalSeconds -ge $nextHeartbeat) {
+            Write-Host ''
+            Write-Host ('仍在写入扫描结果，程序没有卡住，已用 {0}' -f (Format-Elapsed $watch.Elapsed))
+            $nextHeartbeat += $HeartbeatSeconds
+        }
+        Write-Host -NoNewline ("`r正在等待扫描结果写入完成… 已用 {0} {1}  " -f (Format-Elapsed $watch.Elapsed), $spinner[$tick % 4])
+        Start-Sleep -Milliseconds ([int]($PollSeconds * 1000))
+        $tick++
     }
-    throw '扫描结果不存在、为空或仍未写入完成，请检查 WizTree 后重试。'
+}
+
+function Remove-TempCsv {
+    # 只删除本脚本自己生成的那一个 CSV；若文件夹是本脚本新建且已空，再删空文件夹。
+    param([string]$CsvPath, $Folder)
+    Write-Host ('正在删除临时文件：' + $CsvPath)
+    try {
+        if (Test-Path -LiteralPath $CsvPath -PathType Leaf) { Remove-Item -LiteralPath $CsvPath }
+        if ($Folder.Created -and [IO.Directory]::GetFileSystemEntries($Folder.Path).Length -eq 0) { [IO.Directory]::Delete($Folder.Path, $false) }
+        return $true
+    } catch {
+        Write-Host ('临时文件清理失败，你可以手动删除这个文件：' + $CsvPath)
+        return $false
+    }
 }
 
 function Show-InstallHelp {
     Write-Host '请用浏览器打开官网 https://diskanalyzer.com/download 下载安装 WizTree（个人免费），装好后再双击本工具'
-    Write-Host '也可以直接打开 DiskPilot报告.html 看示例或导入 CSV。'
-    Write-Host ('报告查看器：' + [IO.Path]::Combine($PSScriptRoot, 'DiskPilot报告.html'))
+    Write-Host '也可以直接打开「看示例或导入CSV.html」看示例或导入 CSV。'
+    Write-Host ('示例与导入页面：' + [IO.Path]::Combine($PSScriptRoot, '看示例或导入CSV.html'))
 }
 
 function Invoke-DiskPilot {
-    $template = [IO.Path]::Combine($PSScriptRoot, 'DiskPilot报告.html')
+    $template = [IO.Path]::Combine($PSScriptRoot, '看示例或导入CSV.html')
     $tempRoot = [IO.Path]::GetTempPath().TrimEnd('\') + '\'
     $inTemp = $PSScriptRoot.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase)
     $archiveTemp = $inTemp -and (($PSScriptRoot + '\') -match '\\Temp\\d*_[^\\]*\.zip\\|\\Rar\$|\\7z[^\\]*\\')
@@ -215,9 +285,8 @@ function Invoke-DiskPilot {
         if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { Show-InstallHelp; return }
         Write-Host '没有找到 WizTree（免费的磁盘扫描工具，本工具靠它读取 C 盘）。可以用 Windows 自带的 winget 从官方软件源安装：软件包 AntibodySoftware.WizTree，发布者 Antibody Software，大小约 5–8 MB。安装时 Windows 可能弹出一次管理员确认。'
         Write-Host '安装即表示你同意 WizTree 的许可协议（个人免费），协议原文见：https://diskanalyzer.com/eula'
-        $answer = Read-Host '输入 Y 并回车 = 安装；直接回车 = 不安装'
-        $answer = ([string]$answer).Trim()
-        if ($answer -cnotmatch '^[YyＹｙ]$') { Show-InstallHelp; return }
+        $answer = Read-Host '输入 Y 或「是」后按回车安装；直接按回车 = 不安装'
+        if (-not (Test-InstallConsent $answer)) { Write-Host '没有安装。'; Show-InstallHelp; return }
         Write-Host '正在下载安装，期间出现的英文进度信息是正常的，不需要你做任何选择'
         & winget install --id AntibodySoftware.WizTree -e --source winget --accept-package-agreements --accept-source-agreements --silent
         $wiz = Find-WizTree
@@ -228,7 +297,7 @@ function Invoke-DiskPilot {
     $csvPath = [IO.Path]::Combine($folder.Path, ('c-folders-{0}.csv' -f (Get-Date -Format 'yyyyMMdd-HHmmss')))
     if (Test-Path -LiteralPath $csvPath) { throw '同名临时文件已存在，请稍等几秒后重试，避免覆盖已有文件。' }
     Write-Host ('临时文件：' + $csvPath)
-    Write-Host '接下来 Windows 会弹出『是否允许此应用对你的设备进行更改？』，请点『是』。原因：WizTree 需要管理员权限才能直接读取磁盘目录（MFT），这样 1～2 分钟就能扫完。点『否』也行，但会改用慢速模式，可能要 10 分钟以上。'
+    Write-Host '接下来 Windows 会弹出『是否允许此应用对你的设备进行更改？』，请点『是』。原因：需要管理员权限才能快速读取磁盘，这样 1～2 分钟就能扫完。点『否』也行，但会改用慢速模式，可能要 10 分钟以上。'
     [void](Read-Host '按回车键继续')
     $adminScan = $true
     $argString = 'C: /export="' + $csvPath + '" /admin=1 /exportfiles=0'
@@ -241,12 +310,23 @@ function Invoke-DiskPilot {
             $errorObject = $errorObject.InnerException
         }
         if (-not $cancelled) { throw }
-        Write-Host '你选择了不授权，改用慢速模式扫描'
+        Write-Host '你选择了不授权，改用慢速模式扫描。'
         $adminScan = $false
         $argString = 'C: /export="' + $csvPath + '" /admin=0 /exportfiles=0'
         $process = Start-Process -FilePath $wiz -ArgumentList $argString -PassThru
     }
-    Wait-WizTreeExport -Process $process -CsvPath $csvPath
+    $waitResult = Wait-WizTreeExport -Process $process -CsvPath $csvPath -SlowMode:(-not $adminScan)
+    if ($waitResult -eq 'timeout') {
+        Write-Host '等了很久扫描还没有结束，本工具先停下来了。'
+        Write-Host '可能是电脑文件特别多或磁盘比较慢。你可以关掉 WizTree 窗口，稍后重新双击「一键扫描C盘.cmd」再试一次。'
+        if ($process.HasExited) { [void](Remove-TempCsv -CsvPath $csvPath -Folder $folder) }
+        else { Write-Host ('WizTree 还在运行；它结束后，你可以手动删除这个临时文件：' + $csvPath) }
+        return
+    }
+    if ($waitResult -eq 'missing') {
+        Write-Host 'WizTree 已经结束，但没有生成扫描结果。请重新双击「一键扫描C盘.cmd」再试一次；如果一直这样，可以先打开「看示例或导入CSV.html」，按页面里的步骤手动导出 CSV。'
+        return
+    }
     $csvText = Convert-WizTreeCsvToEmbed -CsvPath $csvPath
     $drive = New-Object IO.DriveInfo 'C:'
     $meta = @{ source='real'; drive='C:'; scannedAt=(Get-Date).ToString('o'); totalBytes=$drive.TotalSize; freeBytes=$drive.AvailableFreeSpace; minFolderBytes=10MB; exportKind='folders'; adminScan=$adminScan }
@@ -263,16 +343,15 @@ function Invoke-DiskPilot {
     Write-Host ('报告文件：' + $reportPath + '（想留就留，不想要可以直接删）')
     try { Start-Process -FilePath $reportPath } catch { Write-Host ('无法自动打开报告，请双击上述文件。原始错误：' + $_.Exception.Message) }
     Start-Sleep -Seconds 2
-    Write-Host ('正在删除临时文件：' + $csvPath)
-    try {
-        Remove-Item -LiteralPath $csvPath
-        if ($folder.Created -and [IO.Directory]::GetFileSystemEntries($folder.Path).Length -eq 0) { [IO.Directory]::Delete($folder.Path, $false) }
-    } catch { Write-Host ('临时文件清理失败，你可以手动删除这个文件：' + $csvPath) }
+    [void](Remove-TempCsv -CsvPath $csvPath -Folder $folder)
     Write-Host '报告已打开，可以关掉这个窗口了'
 }
 
 if (-not $NoRun) {
-    try { [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false; Invoke-DiskPilot }
+    # 输入输出都用 UTF-8，保证中文提示正常显示、Read-Host 能读到「是」。
+    try { [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false } catch { $null = $_ }
+    try { [Console]::InputEncoding = New-Object Text.UTF8Encoding $false } catch { $null = $_ }
+    try { Invoke-DiskPilot }
     catch { Write-Host '出错了，未能完成报告。'; Write-Host ('原始错误：' + $_.Exception.Message) }
     [void](Read-Host '按回车键关闭窗口')
     exit 0
