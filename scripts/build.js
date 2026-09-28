@@ -97,11 +97,15 @@ function build() {
   }
   const files = [
     ['一键扫描C盘.cmd', Buffer.from(launcher)],
-    ['DiskPilot-Scan-C.cmd', Buffer.from(launcher)],
     ['diskpilot-lite.ps1', bom(read('diskpilot-lite.ps1'))],
-    ['DiskPilot报告.html', Buffer.from(html)],
+    ['看示例或导入CSV.html', Buffer.from(html)],
     ['使用说明.txt', bom(read('使用说明.txt'))]
   ];
+  // 先清空 build/，避免旧文件名（例如改名前的文件）残留。
+  fs.rmSync(path.join(root, 'build'), {
+    recursive: true,
+    force: true
+  });
   fs.mkdirSync(path.join(root, 'build'), {
     recursive: true
   });
@@ -124,7 +128,9 @@ function build() {
       Buffer.byteLength(html) +
       ' 字节，压缩包 ' +
       archive.length +
-      ' 字节，共 5 个文件。'
+      ' 字节，共 ' +
+      files.length +
+      ' 个文件。'
   );
   return files;
 }
