@@ -273,6 +273,7 @@
       return;
     }
     busy = true;
+    document.getElementById('language').disabled = true;
     document.getElementById('save').disabled = true;
     document.getElementById('file').disabled = true;
     const status = document.getElementById('status');
@@ -333,6 +334,7 @@
         '读取失败：' + error.message + '。请确认选择的是 WizTree 导出的 CSV。';
     } finally {
       busy = false;
+      document.getElementById('language').disabled = false;
       document.getElementById('save').disabled = false;
       document.getElementById('file').disabled = false;
     }
@@ -407,6 +409,17 @@
     }
   }
   document.getElementById('save').onclick = save;
+  document.getElementById('language').onclick = () => {
+    if (busy || !window.DiskPilotLocale) return;
+    document.getElementById('dp-embedded-csv').textContent = '';
+    document.getElementById('dp-embedded-meta').textContent = 'null';
+    document.getElementById('dp-embedded-result').textContent = JSON.stringify({
+      result, meta, selected: [...selected], saved, tier
+    }).replace(/</g, '\\u003c');
+    const next = window.DiskPilotLocale.language === 'en' ? 'cn' : 'en';
+    try { localStorage.setItem('diskpilot-language', next); } catch {}
+    window.DiskPilotLocale.run(next);
+  };
   try {
     const embeddedMeta = readEmbeddedJson('dp-embedded-meta');
     const csv = document
@@ -419,16 +432,26 @@
     } else if (snapshot) {
       ({ result, meta } = snapshot);
       selected = new Set(snapshot.selected);
-      saved = true;
+      saved = snapshot.saved !== false;
+      tier = snapshot.tier || 'light';
+      if (meta.source === 'demo') result = parseCsv(DiskPilotDemo);
     } else {
       meta = {
         source: 'demo'
       };
       result = parseCsv(DiskPilotDemo);
     }
-    if (!saved) {
+    if (!saved && !snapshot) {
       selected = new Set();
     }
+    // Restore presentation using stable IDs, keeping sizes and user paths intact.
+    result.suggestions = result.suggestions.map(suggestion => {
+      const rule = DiskPilotRules.find(rule => rule.id === suggestion.id);
+      return rule ? { ...suggestion, name: rule.name, where: rule.where, risk: rule.risk } : suggestion;
+    });
+    result.categories = result.categories.map(category => ({
+      ...category, label: core.categoryLabels[category.id] || category.label
+    }));
     render();
   } catch (error) {
     app.textContent = '报告读取失败：' + error.message + '。请重新生成报告。';

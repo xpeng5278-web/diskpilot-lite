@@ -285,6 +285,7 @@ function Invoke-DiskPilot {
         if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { Show-InstallHelp; return }
         Write-Host '没有找到 WizTree（免费的磁盘扫描工具，本工具靠它读取 C 盘）。可以用 Windows 自带的 winget 从官方软件源安装：软件包 AntibodySoftware.WizTree，发布者 Antibody Software，大小约 5–8 MB。安装时 Windows 可能弹出一次管理员确认。'
         Write-Host '安装即表示你同意 WizTree 的许可协议（个人免费），协议原文见：https://diskanalyzer.com/eula'
+        Write-Host '本工具不内置 WizTree，其 EULA 禁止未经分发许可的再分发。'
         $answer = Read-Host '输入 Y 或「是」后按回车安装；直接按回车 = 不安装'
         if (-not (Test-InstallConsent $answer)) { Write-Host '没有安装。'; Show-InstallHelp; return }
         Write-Host '正在下载安装，期间出现的英文进度信息是正常的，不需要你做任何选择'

@@ -9,9 +9,9 @@ const vm = require('node:vm');
 const { build, crc32 } = require('../scripts/build');
 const root = path.resolve(__dirname, '..');
 const files = new Map(build());
-test('压缩包五个 UTF-8 文件、大小限制、校验与解压内容', () => {
+test('压缩包四个 UTF-8 文件、大小限制、校验与解压内容', () => {
   const zip = fs.readFileSync(
-    path.join(root, 'dist/DiskPilot-Lite-0.2.0-win.zip')
+    path.join(root, 'dist/DiskPilot-Lite-0.3.0-cn-win.zip')
   );
   assert.ok(zip.length < 1048576);
   let offset = 0;
@@ -117,4 +117,28 @@ test('PowerShell 与说明 BOM、CRLF、5.1 语法、安全删除约束', () => 
   const askAt = powershell.indexOf("Read-Host '输入 Y 或「是」后按回车安装；直接按回车 = 不安装'");
   const installAt = powershell.indexOf('& winget install');
   assert.ok(eulaAt > 0 && eulaAt < askAt && askAt < installAt);
+});
+
+// Validate the actual English ZIP, not only the in-memory package manifest.
+test('English ZIP entries, CRCs and contents match the package', () => {
+  const { packageFiles } = require('../scripts/build');
+  const expected = new Map(packageFiles('en'));
+  const archive = fs.readFileSync(path.join(root, 'dist/DiskPilot-Lite-0.3.0-en-win.zip'));
+  let offset = 0;
+  const names = [];
+  while (archive.readUInt32LE(offset) === 0x04034b50) {
+    const size = archive.readUInt32LE(offset + 18);
+    const nameLength = archive.readUInt16LE(offset + 26);
+    const extraLength = archive.readUInt16LE(offset + 28);
+    const name = archive.subarray(offset + 30, offset + 30 + nameLength).toString();
+    const start = offset + 30 + nameLength + extraLength;
+    const data = zlib.inflateRawSync(archive.subarray(start, start + size));
+    assert.deepEqual(data, expected.get(name));
+    assert.equal(crc32(data), archive.readUInt32LE(offset + 14));
+    names.push(name);
+    offset = start + size;
+  }
+  assert.deepEqual(names, [...expected.keys()]);
+  assert.equal(names.filter(name => name.endsWith('.cmd')).length, 1);
+  assert.ok(archive.length < 1048576);
 });

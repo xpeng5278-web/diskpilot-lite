@@ -64,80 +64,58 @@ function zip(files) {
   endRecord.writeUInt32LE(offset, 16);
   return Buffer.concat([...localRecords, directory, endRecord]);
 }
-/** Build the standalone viewer and Windows archive; return packaged file pairs. */
-function build() {
-  let html = read('report.html');
-  for (const [key, file] of [
-    ['STYLE', 'style.css'],
-    ['CORE', 'core.js'],
-    ['RULES', 'rules.js'],
-    ['DEMO', 'demo-data.js'],
-    ['APP', 'app.js']
-  ]) {
-    html = html.replace('/*{{' + key + '}}*/', () => read(file));
+/** Build both language packages from the same scanner and report sources. */
+function packageFiles(language) {
+  const { english, unicode } = require('./localize');
+  const modules = ['core.js', 'rules.js', 'demo-data.js', 'app.js'];
+  const cn = modules.map(name => {
+    const source = read(name);
+    return language === 'en' && name === 'app.js'
+      ? source.replaceAll('一键扫描C盘.cmd', 'Scan-C-Drive.cmd') : source;
+  }).join('\n');
+  const en = modules.map(name => english(read(name))).join('\n');
+  let runtime = read('locale.js')
+    .replace('/*{{EN_MODULES}}*/', () => en)
+    .replace('/*{{CN_MODULES}}*/', () => cn);
+  let html = language === 'en' ? english(read('report.html'), 'html').replace('lang="zh-CN"', 'lang="en"') : read('report.html');
+  html = html.replace('/*{{STYLE}}*/', () => read('style.css').replace(/\/\*[\s\S]*?\*\//g, ''));
+  for (const key of ['CORE', 'RULES', 'DEMO']) html = html.replace('/*{{' + key + '}}*/', '');
+  html = html.replace('/*{{APP}}*/', () => unicode(runtime));
+  if (Buffer.byteLength(html) > 500 * 1024) throw new Error('Report exceeds 500 KB');
+  let launcher = read('launcher.cmd.tpl');
+  if (language === 'en') {
+    launcher = english(launcher, 'cmd')
+      .replace('Qing xian jie ya. ', '')
+      .replace('Zhao bu dao PowerShell. ', '')
+      .replace('Qing zai Windows zhong yun xing, an ren yi jian guan bi.', 'Run this tool on Windows. Press any key to close.');
   }
-  if (Buffer.byteLength(html) > 500 * 1024) {
-    throw new Error('报告超过 500 KB');
-  }
-  const launcher = crlf(
-    read('launcher.cmd.tpl').replace(
-      /\{\{ZH:([^}]+)\}\}/g,
-      (_, message) =>
-        '-join [char[]](' +
-        Array.from(
-          message,
-          (character) =>
-            '0x' + character.charCodeAt(0).toString(16).toUpperCase()
-        ).join(',') +
-        ')'
-    )
-  );
-  if (/[^\x00-\x7f]/.test(launcher)) {
-    throw new Error('启动器包含非 ASCII 字符');
-  }
-  const files = [
-    ['一键扫描C盘.cmd', Buffer.from(launcher)],
-    ['diskpilot-lite.ps1', bom(read('diskpilot-lite.ps1'))],
-    ['看示例或导入CSV.html', Buffer.from(html)],
-    ['使用说明.txt', bom(read('使用说明.txt'))]
+  launcher = crlf(launcher.replace(/\{\{ZH:([^}]+)\}\}/g, (_, message) =>
+    '-join [char[]](' + Array.from(message, c => '0x' + c.charCodeAt(0).toString(16).toUpperCase()).join(',') + ')'));
+  if (/[^\x00-\x7f]/.test(launcher)) throw new Error('Launcher must be ASCII');
+  return [
+    [language === 'en' ? 'Scan-C-Drive.cmd' : '一键扫描C盘.cmd', Buffer.from(launcher)],
+    ['diskpilot-lite.ps1', bom(language === 'en' ? english(read('diskpilot-lite.ps1'), 'ps') : read('diskpilot-lite.ps1'))],
+    [language === 'en' ? 'View-Sample-or-Import-CSV.html' : '看示例或导入CSV.html', Buffer.from(html)],
+    [language === 'en' ? 'README.txt' : '使用说明.txt', bom(read(language === 'en' ? 'README.txt' : '使用说明.txt'))]
   ];
-  // 先清空 build/，避免旧文件名（例如改名前的文件）残留。
-  fs.rmSync(path.join(root, 'build'), {
-    recursive: true,
-    force: true
-  });
-  fs.mkdirSync(path.join(root, 'build'), {
-    recursive: true
-  });
-  fs.mkdirSync(path.join(root, 'dist'), {
-    recursive: true
-  });
-  for (const [name, data] of files) {
-    fs.writeFileSync(path.join(root, 'build', name), data);
-  }
-  const archive = zip(files);
-  if (archive.length >= 1024 * 1024) {
-    throw new Error('压缩包超过 1 MB');
-  }
-  fs.writeFileSync(
-    path.join(root, 'dist', 'DiskPilot-Lite-0.2.0-win.zip'),
-    archive
-  );
-  console.log(
-    '构建完成：报告 ' +
-      Buffer.byteLength(html) +
-      ' 字节，压缩包 ' +
-      archive.length +
-      ' 字节，共 ' +
-      files.length +
-      ' 个文件。'
-  );
-  return files;
 }
-if (require.main === module) {
-  build();
+function build() {
+  fs.rmSync(path.join(root, 'build'), { recursive: true, force: true });
+  fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
+  let chinese;
+  for (const language of ['cn', 'en']) {
+    const files = packageFiles(language);
+    const directory = path.join(root, 'build', language);
+    fs.mkdirSync(directory, { recursive: true });
+    for (const [name, data] of files) fs.writeFileSync(path.join(directory, name), data);
+    const archive = zip(files);
+    if (archive.length >= 1024 * 1024) throw new Error('Archive exceeds 1 MB');
+    const name = `DiskPilot-Lite-0.3.0-${language}-win.zip`;
+    fs.writeFileSync(path.join(root, 'dist', name), archive);
+    console.log(`${name}: ${archive.length} bytes, ${files.length} files`);
+    if (language === 'cn') chinese = files;
+  }
+  return chinese;
 }
-module.exports = {
-  build,
-  crc32
-};
+if (require.main === module) build();
+module.exports = { build, packageFiles, crc32 };

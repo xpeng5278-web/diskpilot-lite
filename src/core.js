@@ -481,6 +481,7 @@
     return Math.round(bytes) + ' 字节';
   }
   return {
+    categoryLabels: categoryNames,
     createCsvParser,
     createAggregator,
     unionBytes,
