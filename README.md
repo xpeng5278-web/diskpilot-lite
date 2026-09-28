@@ -1,11 +1,17 @@
 # DiskPilot Lite · C 盘空间报告
 
+[![GitHub release](https://img.shields.io/github/v/release/xpeng5278-web/diskpilot-lite)](https://github.com/xpeng5278-web/diskpilot-lite/releases/latest) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 > C 盘满了？双击一次，拿到一份看得懂的「C 盘清理建议报告」。
 > **仅建议、不删除**：本工具不会删除或移动你的任何文件，全部在你自己的电脑上完成，不上传任何数据。
 
+![报告示例（示例数据，不是真实电脑）](docs/images/report-demo.png)
+
+*报告示例截图（示例数据）*
+
 ## 怎么用（3 步）
 
-1. **下载压缩包**：`DiskPilot-Lite-0.2.0-win.zip`（不到 1 MB）。
+1. **下载压缩包**：从 [Releases 页面](https://github.com/xpeng5278-web/diskpilot-lite/releases/latest) 下载 `DiskPilot-Lite-0.2.0-win.zip`（约 23 KB）。
 2. **右键压缩包 →「全部解压缩」**。一定要先解压，直接在压缩包里双击是不行的（工具会提示「请先右键解压，再双击」）。
 3. 打开解压出来的文件夹，**双击 `一键扫描C盘.cmd`**。大约 1～2 分钟后，报告会自动在浏览器里打开。
 
