@@ -1,0 +1,281 @@
+:root {
+  font-family: system-ui, 'Microsoft YaHei', sans-serif;
+  color: #162a38;
+  background: #f2f5f7;
+  font-size: 18px;
+  line-height: 1.65;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: #fff;
+  border-bottom: 2px solid #c5d4de;
+  padding: 16px max(20px, calc((100% - 1100px) / 2));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+header p {
+  font-size: 14px;
+  margin: 4px 0 0;
+}
+.badge {
+  display: inline-block;
+  background: #d6f5e7;
+  color: #135a3e;
+  border: 1px solid #267654;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 15px;
+}
+main {
+  max-width: 1100px;
+  margin: 26px auto;
+  padding: 0 20px 50px;
+}
+button,
+.file-button {
+  font: inherit;
+  cursor: pointer;
+  background: #125f88;
+  color: #fff;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  padding: 10px 16px;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+  outline: 3px solid #c16500;
+  outline-offset: 3px;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+h1 {
+  font-size: 30px;
+  line-height: 1.4;
+}
+h2 {
+  font-size: 24px;
+}
+h3 {
+  margin: 0;
+  font-size: 21px;
+}
+section,
+.card {
+  background: white;
+  border: 1px solid #cbd6dd;
+  border-radius: 12px;
+  padding: 22px;
+  margin: 20px 0;
+}
+.source {
+  font-weight: 600;
+}
+.demo {
+  background: #fff0cd;
+  border: 1px solid #af7815;
+  padding: 12px;
+  border-radius: 8px;
+}
+.tabs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.tabs button {
+  background: #e1eaf0;
+  color: #173c52;
+}
+.tabs button[aria-selected='true'] {
+  background: #125f88;
+  color: #fff;
+}
+.card-head {
+  display: flex;
+  gap: 14px;
+  align-items: start;
+}
+.card-head input {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  margin-top: 7px;
+}
+.size {
+  font-weight: 700;
+  color: #0d587d;
+}
+.paths {
+  font-family: Consolas, monospace;
+  font-size: 15px;
+  overflow-wrap: anywhere;
+  padding-left: 24px;
+}
+.risk {
+  color: #754214;
+  background: #fff4e3;
+  padding: 10px;
+  border-radius: 6px;
+}
+.bar {
+  height: 15px;
+  background: #dce5eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.bar span {
+  height: 100%;
+  display: block;
+  background: #19769c;
+}
+.category {
+  margin: 16px 0;
+}
+.category-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.drop {
+  border: 2px dashed #65899e;
+  padding: 25px;
+  border-radius: 10px;
+  text-align: center;
+}
+.drop.over {
+  background: #d6edf6;
+}
+progress {
+  width: 100%;
+  height: 22px;
+}
+.help {
+  display: inline-block;
+  position: relative;
+}
+.help button {
+  border-radius: 50%;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  font-size: 18px;
+}
+.tooltip {
+  display: none;
+  position: absolute;
+  background: #173c52;
+  color: white;
+  padding: 12px;
+  width: 250px;
+  border-radius: 8px;
+  font-size: 16px;
+  right: 0;
+  z-index: 6;
+}
+.help:hover .tooltip,
+.help:focus-within .tooltip,
+.help.open .tooltip {
+  display: block;
+}
+#status {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+a {
+  color: #095d8e;
+}
+small {
+  font-size: 15px;
+}
+.muted {
+  color: #435969;
+}
+@media (max-width: 620px) {
+  header {
+    padding: 10px 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  header strong {
+    font-size: 17px;
+  }
+  header p {
+    font-size: 12px;
+  }
+  header button {
+    padding: 6px 10px;
+  }
+  main {
+    padding: 0 12px;
+  }
+  h1 {
+    font-size: 25px;
+  }
+  section,
+  .card {
+    padding: 15px;
+  }
+  .tabs button {
+    flex: 1;
+    font-size: 16px;
+    padding: 8px;
+  }
+  .category-title {
+    font-size: 16px;
+  }
+}
+
+/* Keep the native chooser accessible without showing browser-supplied text. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.drop:focus-within .file-button {
+  outline: 3px solid #c16500;
+  outline-offset: 3px;
+}
+
+/* 「保存这份报告」按钮及保存后的提示 */
+.save-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  max-width: 360px;
+}
+
+.save-status {
+  margin: 6px 0 0;
+  font-size: 14px;
+  text-align: right;
+}
+
+.save-status:empty {
+  display: none;
+}
+
+.drop-hint {
+  margin: 0 0 12px;
+}
+
+.drop .file-button {
+  display: inline-block;
+}
